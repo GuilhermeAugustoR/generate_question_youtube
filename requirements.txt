@@ -22,7 +22,7 @@ en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_
 filelock==3.17.0
 flatbuffers==25.2.10
 fsspec==2025.2.0
-gast==0.6.0
+gast==0.4.0
 gitdb==4.0.12
 GitPython==3.1.44
 google-ai-generativelanguage==0.6.15
