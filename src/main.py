@@ -5,8 +5,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
 import requests
 from datetime import datetime
-import base64
-import time
 
 def apply_custom_css():
     # Cores para tema claro
@@ -33,16 +31,14 @@ def apply_custom_css():
     text = dark_text
     card_bg = dark_card_bg
     
-    # CSS personalizado
+    # CSS personalizado (simplificado para melhor performance)
     st.markdown(f"""
     <style>
-        /* Estilos gerais */
         .stApp {{
             background-color: {bg};
             color: {text};
         }}
         
-        /* Cabeçalhos */
         h1, h2, h3 {{
             color: {primary};
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -58,37 +54,14 @@ def apply_custom_css():
             display: inline-block;
         }}
         
-        h2 {{
-            font-size: 1.8rem;
-            margin-top: 1.5rem;
-            margin-bottom: 1rem;
-        }}
-        
-        /* Cards */
         .card {{
             background-color: {card_bg};
             border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
         }}
         
-        .card:hover {{
-            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
-            transform: translateY(-5px);
-        }}
-        
-        /* Formulário */
-        .form-container {{
-            background-color: {card_bg};
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }}
-        
-        /* Botões */
         .stButton > button {{
             background-color: {primary};
             color: white;
@@ -96,15 +69,12 @@ def apply_custom_css():
             padding: 0.5rem 1rem;
             font-weight: 600;
             border: none;
-            transition: all 0.3s;
         }}
         
         .stButton > button:hover {{
             background-color: {secondary};
-            transform: translateY(-2px);
         }}
         
-        /* Mensagens */
         .success-box {{
             background-color: #d1fae5;
             border-left: 4px solid #10b981;
@@ -129,46 +99,6 @@ def apply_custom_css():
             margin: 1rem 0;
         }}
         
-        /* Badges */
-        .badge {{
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            background-color: {primary}33;
-            color: {primary};
-            border-radius: 9999px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            margin-right: 0.5rem;
-        }}
-        
-        /* Tabs */
-        .stTabs [data-baseweb="tab-list"] {{
-            gap: 8px;
-        }}
-        
-        .stTabs [data-baseweb="tab"] {{
-            background-color: {card_bg};
-            border-radius: 8px 8px 0 0;
-            padding: 0.5rem 1rem;
-            font-weight: 600;
-        }}
-        
-        .stTabs [aria-selected="true"] {{
-            background-color: {primary};
-            color: white;
-        }}
-        
-        /* Animações */
-        @keyframes fadeIn {{
-            from {{ opacity: 0; transform: translateY(20px); }}
-            to {{ opacity: 1; transform: translateY(0); }}
-        }}
-        
-        .animate-fade-in {{
-            animation: fadeIn 0.5s ease-out forwards;
-        }}
-        
-        /* Footer */
         .footer {{
             text-align: center;
             margin-top: 3rem;
@@ -176,20 +106,6 @@ def apply_custom_css():
             font-size: 0.875rem;
             color: {text}99;
             border-top: 1px solid {text}22;
-        }}
-        
-        /* Tema toggle */
-        .theme-toggle {{
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 1000;
-        }}
-        
-        /* Responsividade */
-        @media (max-width: 768px) {{
-            h1 {{ font-size: 2rem; }}
-            .card {{ padding: 1rem; }}
         }}
     </style>
     """, unsafe_allow_html=True)
@@ -202,8 +118,6 @@ if 'has_generated' not in st.session_state:
     st.session_state.has_generated = False
 if 'question_type' not in st.session_state:
     st.session_state.question_type = "dissertativa"
-if 'manual_transcript' not in st.session_state:
-    st.session_state.manual_transcript = ""
 
 def extract_video_id(youtube_url):
     youtube_regex = (
@@ -216,61 +130,106 @@ def extract_video_id(youtube_url):
         return youtube_match.group(6)
     return None
 
-def get_transcript_from_local_file():
-    """Permite ao usuário fazer upload de um arquivo de transcrição"""
-    uploaded_file = st.file_uploader("Faça upload de um arquivo de transcrição (TXT)", type="txt")
-    if uploaded_file is not None:
-        # Ler o conteúdo do arquivo
-        transcript = uploaded_file.getvalue().decode("utf-8")
-        return transcript
+def check_video_availability(video_id):
+    """Verifica se o vídeo está disponível no YouTube"""
+    try:
+        # Usando a API pública do YouTube para verificar o status do vídeo
+        url = f"https://www.youtube.com/oembed?url=http://www.youtube.com/watch?v={video_id}&format=json"
+        response = requests.get(url)
+        
+        # Se a resposta for bem-sucedida, o vídeo está disponível
+        return response.status_code == 200
+    except:
+        # Em caso de erro, assumimos que o vídeo não está disponível
+        return False
+
+def get_transcript_via_proxy(video_id):
+    """Tenta obter a transcrição usando serviços proxy alternativos"""
+    try:
+        # Lista de serviços proxy para tentar
+        proxy_services = [
+            f"https://invidious.snopyta.org/api/v1/videos/{video_id}/captions",
+            f"https://vid.puffyan.us/api/v1/videos/{video_id}/captions",
+            f"https://yewtu.be/api/v1/videos/{video_id}/captions"
+        ]
+        
+        for service_url in proxy_services:
+            try:
+                response = requests.get(service_url, timeout=5)
+                if response.status_code == 200:
+                    captions_data = response.json()
+                    # Processar os dados de legendas
+                    if captions_data and len(captions_data) > 0:
+                        # Tentar encontrar legendas em português
+                        pt_captions = next((c for c in captions_data if c.get('languageCode') == 'pt'), None)
+                        if pt_captions:
+                            caption_url = pt_captions.get('url')
+                            if caption_url:
+                                caption_response = requests.get(caption_url)
+                                if caption_response.status_code == 200:
+                                    # Processar o conteúdo das legendas
+                                    return caption_response.text
+                        
+                        # Se não encontrou legendas em português, tenta em inglês
+                        en_captions = next((c for c in captions_data if c.get('languageCode') == 'en'), None)
+                        if en_captions:
+                            caption_url = en_captions.get('url')
+                            if caption_url:
+                                caption_response = requests.get(caption_url)
+                                if caption_response.status_code == 200:
+                                    # Processar o conteúdo das legendas
+                                    return caption_response.text
+            except:
+                continue
+    except:
+        pass
+    
     return None
 
-def get_youtube_transcript_with_proxy(video_id):
-    """Tenta obter a transcrição do YouTube usando um proxy ou serviço alternativo"""
-    # Lista de serviços proxy para tentar
-    proxy_services = [
-        f"https://invidious.snopyta.org/api/v1/videos/{video_id}/captions",
-        f"https://vid.puffyan.us/api/v1/videos/{video_id}/captions",
-        f"https://yewtu.be/api/v1/videos/{video_id}/captions"
-    ]
+def get_transcript_via_api(video_id):
+    """Tenta obter a transcrição usando APIs alternativas"""
+    try:
+        # Tentar API alternativa 1
+        url = f"https://youtubetranscript.com/?server_vid={video_id}"
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            # Extrair o texto da transcrição da resposta
+            transcript_text = response.text
+            # Processar o texto para extrair apenas a transcrição
+            transcript_match = re.search(r'"text":"(.*?)"', transcript_text)
+            if transcript_match:
+                return transcript_match.group(1)
+    except:
+        pass
     
-    for service_url in proxy_services:
-        try:
-            response = requests.get(service_url)
-            if response.status_code == 200:
-                captions_data = response.json()
+    try:
+        # Tentar API alternativa 2
+        url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}"
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            captions_data = response.json()
+            if 'items' in captions_data and len(captions_data['items']) > 0:
                 # Processar os dados de legendas
-                if captions_data and len(captions_data) > 0:
-                    # Tentar encontrar legendas em português
-                    pt_captions = next((c for c in captions_data if c.get('languageCode') == 'pt'), None)
-                    if pt_captions:
-                        caption_url = pt_captions.get('url')
-                        if caption_url:
-                            caption_response = requests.get(caption_url)
-                            if caption_response.status_code == 200:
-                                # Processar o conteúdo das legendas
-                                return caption_response.text
-            
-            # Se não encontrou legendas em português, tenta em inglês
-            en_captions = next((c for c in captions_data if c.get('languageCode') == 'en'), None)
-            if en_captions:
-                caption_url = en_captions.get('url')
-                if caption_url:
-                    caption_response = requests.get(caption_url)
-                    if caption_response.status_code == 200:
-                        # Processar o conteúdo das legendas
-                        return caption_response.text
-        except:
-            continue
+                return "Transcrição obtida via API alternativa"
+    except:
+        pass
     
     return None
 
 def get_youtube_transcript_with_fallback(video_id):
     """Tenta obter a transcrição do YouTube com múltiplos métodos"""
+    # Verificar se o vídeo está disponível
+    if not check_video_availability(video_id):
+        st.error("Este vídeo não está mais disponível no YouTube.")
+        return None
+    
     # Método 1: Usando a biblioteca youtube-transcript-api diretamente
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['pt'])
         transcript = ' '.join([item['text'] for item in transcript_list])
+        st.success("✅ Transcrição obtida com sucesso!")
         return transcript
     except Exception as e:
         st.warning(f"Método primário falhou: {str(e)}")
@@ -280,42 +239,35 @@ def get_youtube_transcript_with_fallback(video_id):
             st.info("Tentando obter legendas em outros idiomas...")
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
             transcript = ' '.join([item['text'] for item in transcript_list])
+            st.success("✅ Transcrição obtida em inglês!")
             return transcript
         except:
             st.warning("Não foi possível obter legendas em outros idiomas.")
         
         # Método 3: Tentar com proxy
-        try:
-            st.info("Tentando obter transcrição através de serviços alternativos...")
-            proxy_transcript = get_youtube_transcript_with_proxy(video_id)
-            if proxy_transcript:
-                return proxy_transcript
-        except:
-            st.warning("Não foi possível obter transcrição através de serviços alternativos.")
+        st.info("Tentando obter transcrição através de serviços alternativos...")
+        proxy_transcript = get_transcript_via_proxy(video_id)
+        if proxy_transcript:
+            st.success("✅ Transcrição obtida via serviço alternativo!")
+            return proxy_transcript
         
-        # Método 4: Permitir upload de arquivo
-        st.info("Você pode fazer upload de um arquivo de transcrição:")
-        file_transcript = get_transcript_from_local_file()
-        if file_transcript:
-            return file_transcript
+        # Método 4: Tentar com API alternativa
+        api_transcript = get_transcript_via_api(video_id)
+        if api_transcript:
+            st.success("✅ Transcrição obtida via API alternativa!")
+            return api_transcript
         
-        # Método 5: Entrada manual
-        st.warning("Não foi possível obter a transcrição automaticamente.")
+        # Se todos os métodos falharem
+        st.error("Não foi possível obter a transcrição automaticamente.")
         
-        # Verificar se já temos uma transcrição manual na sessão
-        if st.session_state.manual_transcript:
-            return st.session_state.manual_transcript
-        
-        # Opção para inserir transcrição manualmente
+        # Permitir entrada manual como último recurso
         manual_transcript = st.text_area(
-            "Insira manualmente a transcrição ou o conteúdo do vídeo:",
-            height=300,
-            placeholder="Cole aqui a transcrição do vídeo ou um texto relacionado ao tema..."
+            "Como último recurso, você pode colar a transcrição manualmente:",
+            height=200,
+            placeholder="Cole aqui a transcrição do vídeo..."
         )
         
         if manual_transcript:
-            # Salvar na sessão para não perder se o usuário recarregar
-            st.session_state.manual_transcript = manual_transcript
             return manual_transcript
         
         return None
@@ -452,14 +404,10 @@ def on_generate_click():
 
 def render_header():
     """Renderiza o cabeçalho da aplicação"""
-    col1, col2 = st.columns([6, 1])
-    
-    with col1:
-        st.markdown("<h1>🎓 Gerador de Perguntas do YouTube</h1>", unsafe_allow_html=True)
-    
+    st.markdown("<h1>🎓 Gerador de Perguntas do YouTube</h1>", unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="card animate-fade-in">
+    <div class="card">
         <p>Este aplicativo utiliza inteligência artificial para gerar perguntas personalizadas baseadas no conteúdo de vídeos do YouTube.</p>
         <p>Ideal para professores, estudantes e criadores de conteúdo que desejam criar materiais educativos de forma rápida e eficiente.</p>
     </div>
@@ -473,61 +421,22 @@ def render_footer():
     </div>
     """, unsafe_allow_html=True)
 
-def render_video_tips():
-    """Renderiza dicas para escolher vídeos compatíveis"""
-    with st.expander("Dicas para escolher vídeos compatíveis"):
+def render_deployment_options():
+    with st.expander("Opções de Deploy Alternativas"):
         st.markdown("""
         <div class="info-box">
-            <h4>Como escolher vídeos compatíveis:</h4>
+            <h4>Plataformas alternativas para deploy (gratuitas):</h4>
             <ul>
-                <li>Escolha vídeos que tenham legendas disponíveis (ícone CC na barra de controle do YouTube)</li>
-                <li>Vídeos em português do Brasil geralmente funcionam melhor</li>
-                <li>Vídeos educacionais, palestras e tutoriais costumam ter legendas de qualidade</li>
-                <li>Verifique se o vídeo está disponível publicamente (não é privado ou restrito)</li>
-                <li>Vídeos muito recentes podem ainda não ter legendas processadas</li>
+                <li><strong>Render.com</strong> - Oferece plano gratuito com menos restrições de rede</li>
+                <li><strong>Railway.app</strong> - Plano gratuito com limites mensais, mas bom desempenho</li>
+                <li><strong>Fly.io</strong> - Camada gratuita generosa, bom para aplicações Python</li>
+                <li><strong>Replit</strong> - Plataforma gratuita com suporte para Streamlit</li>
+                <li><strong>Google Cloud Run</strong> - Tem camada gratuita e boa conectividade</li>
+                <li><strong>Hugging Face Spaces</strong> - Gratuito e com bom suporte para Streamlit</li>
             </ul>
-            <h4>Solução para problemas de acesso:</h4>
-            <p>Se um vídeo funciona localmente mas não funciona no deploy, você pode:</p>
-            <ul>
-                <li>Fazer upload de um arquivo de transcrição (TXT) que você obteve localmente</li>
-                <li>Colar manualmente a transcrição no campo de texto</li>
-                <li>Tentar outro vídeo com legendas disponíveis</li>
-            </ul>
+            <p>Estas plataformas geralmente têm menos restrições de rede e podem funcionar melhor para acessar APIs externas como a do YouTube.</p>
         </div>
         """, unsafe_allow_html=True)
-
-def render_local_transcript_uploader():
-    """Renderiza um uploader para transcrições locais"""
-    st.markdown("<h3>Transcrição Local</h3>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class="info-box">
-        <p>Se você já tem a transcrição do vídeo, pode fazer upload dela aqui ou colar diretamente no campo abaixo.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Opção 1: Upload de arquivo
-    uploaded_file = st.file_uploader("Faça upload de um arquivo de transcrição (TXT)", type="txt")
-    if uploaded_file is not None:
-        # Ler o conteúdo do arquivo
-        transcript = uploaded_file.getvalue().decode("utf-8")
-        st.session_state.manual_transcript = transcript
-        st.success("✅ Transcrição carregada com sucesso!")
-        return True
-    
-    # Opção 2: Entrada manual
-    manual_transcript = st.text_area(
-        "Ou cole a transcrição aqui:",
-        value=st.session_state.manual_transcript,
-        height=200,
-        placeholder="Cole aqui a transcrição do vídeo ou um texto relacionado ao tema..."
-    )
-    
-    if manual_transcript and manual_transcript != st.session_state.manual_transcript:
-        st.session_state.manual_transcript = manual_transcript
-        st.success("✅ Transcrição salva!")
-        return True
-    
-    return False
 
 def main():
     st.set_page_config(
@@ -542,55 +451,29 @@ def main():
     # Renderizar cabeçalho
     render_header()
     
-    # Renderizar dicas para escolher vídeos
-    render_video_tips()
+    # # Mostrar opções de deploy alternativas
+    # render_deployment_options()
     
-    # Criar abas para diferentes métodos de entrada
-    tab1, tab2 = st.tabs(["Vídeo do YouTube", "Transcrição Manual"])
-    
-    with tab1:
-        # Formulário de entrada para vídeo do YouTube
-        with st.form("youtube_form"):
-            youtube_url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
-            api_key = st.text_input("Chave da API Google (AI/Gemini)", type="password")
-            # Guardar a API key na sessão para uso posterior
-            if api_key:
-                st.session_state['api_key'] = api_key
-                
-            num_questions = st.slider("Número de perguntas a serem geradas", min_value=1, max_value=20, value=5)
+    # Formulário de entrada
+    with st.form("input_form"):
+        youtube_url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
+        api_key = st.text_input("Chave da API Google (AI/Gemini)", type="password")
+        # Guardar a API key na sessão para uso posterior
+        if api_key:
+            st.session_state['api_key'] = api_key
             
-            question_type = st.radio(
-                "Tipo de perguntas:",
-                options=["dissertativa", "multipla_escolha"],
-                format_func=lambda x: "Dissertativas" if x == "dissertativa" else "Múltipla Escolha (a, b, c, d, e)"
-            )
-            
-            submitted_youtube = st.form_submit_button("Gerar Perguntas", on_click=on_generate_click)
-    
-    with tab2:
-        # Uploader para transcrição local
-        has_local_transcript = render_local_transcript_uploader()
+        num_questions = st.slider("Número de perguntas a serem geradas", min_value=1, max_value=20, value=5)
         
-        # Formulário para gerar perguntas a partir da transcrição manual
-        with st.form("manual_form"):
-            api_key_manual = st.text_input("Chave da API Google (AI/Gemini)", type="password", key="api_key_manual")
-            # Guardar a API key na sessão para uso posterior
-            if api_key_manual:
-                st.session_state['api_key'] = api_key_manual
-                
-            num_questions_manual = st.slider("Número de perguntas a serem geradas", min_value=1, max_value=20, value=5, key="num_questions_manual")
-            
-            question_type_manual = st.radio(
-                "Tipo de perguntas:",
-                options=["dissertativa", "multipla_escolha"],
-                format_func=lambda x: "Dissertativas" if x == "dissertativa" else "Múltipla Escolha (a, b, c, d, e)",
-                key="question_type_manual"
-            )
-            
-            submitted_manual = st.form_submit_button("Gerar Perguntas", on_click=on_generate_click)
+        question_type = st.radio(
+            "Tipo de perguntas:",
+            options=["dissertativa", "multipla_escolha"],
+            format_func=lambda x: "Dissertativas" if x == "dissertativa" else "Múltipla Escolha (a, b, c, d, e)"
+        )
+        
+        submitted = st.form_submit_button("Gerar Perguntas", on_click=on_generate_click)
     
-    # Processar o formulário do YouTube quando enviado
-    if submitted_youtube:
+    # Processar o formulário quando enviado
+    if submitted:
         if not youtube_url:
             st.error("Por favor, insira uma URL do YouTube.")
             return
@@ -604,14 +487,11 @@ def main():
             st.error("URL do YouTube inválida. Por favor, insira uma URL válida.")
             return
         
-        with st.spinner("Buscando transcrição..."):
+        with st.spinner("Verificando disponibilidade do vídeo e buscando transcrição..."):
             # Usar o método com fallback
             transcript = get_youtube_transcript_with_fallback(video_id)
             if not transcript:
-                st.error("Não foi possível obter a transcrição. Por favor, tente a opção de transcrição manual.")
                 return
-            
-            st.success("✅ Transcrição obtida com sucesso!")
             
             with st.spinner("Gerando perguntas com IA..."):
                 questions = generate_questions(transcript, api_key, num_questions, question_type)
@@ -634,40 +514,9 @@ def main():
                 
                 st.success("✅ Perguntas geradas com sucesso!")
     
-    # Processar o formulário manual quando enviado
-    if submitted_manual:
-        if not st.session_state.manual_transcript:
-            st.error("Por favor, insira ou faça upload de uma transcrição.")
-            return
-        
-        if not api_key_manual:
-            st.error("Por favor, insira sua chave de API do Google (AI/Gemini).")
-            return
-        
-        with st.spinner("Gerando perguntas com IA..."):
-            questions = generate_questions(st.session_state.manual_transcript, api_key_manual, num_questions_manual, question_type_manual)
-            
-            if not questions:
-                st.error("Falha ao gerar perguntas.")
-                return
-            
-            # Salvar as perguntas e o tipo no estado da sessão
-            st.session_state.questions = questions
-            st.session_state.question_type = question_type_manual
-            st.session_state.has_generated = True
-            
-            # Inicializar o estado para cada pergunta
-            for i in range(len(questions)):
-                if f"resposta_selecionada_{i}" not in st.session_state:
-                    st.session_state[f"resposta_selecionada_{i}"] = None
-                if f"mostrar_resultado_{i}" not in st.session_state:
-                    st.session_state[f"mostrar_resultado_{i}"] = False
-            
-            st.success("✅ Perguntas geradas com sucesso!")
-    
     # Exibir perguntas se elas foram geradas
     if st.session_state.has_generated and st.session_state.questions:
-        st.markdown("<h2>📋 Perguntas Geradas</h2>", unsafe_allow_html=True)
+        st.subheader("Perguntas Geradas")
         
         # Exibir perguntas de acordo com o tipo
         if st.session_state.question_type == "multipla_escolha":
