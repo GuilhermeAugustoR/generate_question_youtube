@@ -57,7 +57,7 @@ def apply_custom_css():
             border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box_shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         
         .stButton > button {
@@ -439,34 +439,144 @@ def transcribe_with_gemini(audio_file, api_key):
         return None
 
 def get_transcript_from_title_description(video_info, api_key):
-    """Gera uma transcrição sintética a partir do título e descrição do vídeo"""
+    """Gera uma transcrição sintética de alta qualidade a partir do título e descrição do vídeo"""
     try:
-        with st.spinner("Gerando transcrição a partir das informações do vídeo..."):
+        with st.spinner("Gerando transcrição sintética aprimorada..."):
             # Configurar a API
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel("gemini-1.5-flash")
             
-            # Criar prompt
-            prompt = f"""
-            Com base no título e descrição deste vídeo do YouTube, crie uma transcrição sintética 
-            que represente o possível conteúdo do vídeo. Seja detalhado e abrangente.
+            # Extrair informações do vídeo
+            title = video_info.get('title', 'Título desconhecido')
+            author = video_info.get('author', 'Autor desconhecido')
+            description = video_info.get('description', 'Descrição não disponível')
             
-            Título: {video_info.get('title', 'Título desconhecido')}
-            Autor: {video_info.get('author', 'Autor desconhecido')}
-            Descrição: {video_info.get('description', 'Descrição não disponível')}
+            # Detectar o tema principal do vídeo
+            theme_prompt = f"""
+            Analise o título e descrição deste vídeo e identifique o tema principal, tecnologias abordadas,
+            e conceitos específicos que provavelmente foram discutidos.
             
-            Crie uma transcrição que cubra os principais tópicos que provavelmente foram abordados no vídeo.
-            Inclua explicações técnicas, exemplos e conceitos relacionados ao tema.
+            Título: {title}
+            Autor: {author}
+            Descrição: {description}
+            
+            Responda apenas com uma lista de tópicos no formato:
+            - Tema principal: [tema]
+            - Tecnologias: [tecnologia1, tecnologia2, ...]
+            - Conceitos: [conceito1, conceito2, ...]
+            - Nível técnico estimado: [iniciante/intermediário/avançado]
+            """
+            
+            theme_response = model.generate_content(theme_prompt)
+            theme_analysis = theme_response.text
+            
+            # Determinar se é um vídeo técnico e qual tecnologia
+            is_technical = any(tech in title.lower() or tech in description.lower() for tech in 
+                              ["javascript", "python", "react", "node", "next.js", "nextjs", "programação", 
+                               "código", "desenvolvimento", "web", "frontend", "backend", "fullstack"])
+            
+            # Criar prompt específico baseado no tipo de conteúdo
+            if "next.js" in title.lower() or "nextjs" in title.lower() or "next" in title.lower():
+                # Prompt específico para vídeos de Next.js
+                specific_context = """
+                Contexto sobre Next.js:
+                - Next.js é um framework React para desenvolvimento web
+                - Principais recursos: Server-Side Rendering (SSR), Static Site Generation (SSG), API Routes
+                - Next.js 14 trouxe melhorias como Server Components, Server Actions, Partial Prerendering
+                - App Router é a nova estrutura de roteamento que substitui o Pages Router
+                - Conceitos importantes: layout.js, page.js, page.js, loading.js, error.js, middleware.js
+                - Server Components vs Client Components
+                - Data Fetching: fetch API, revalidação, cache
+                """
+            elif "react" in title.lower():
+                # Prompt específico para vídeos de React
+                specific_context = """
+                Contexto sobre React:
+                - React é uma biblioteca JavaScript para construção de interfaces
+                - Principais conceitos: Componentes, Props, Estado, Hooks, Context API
+                - Hooks comuns: useState, useEffect, useContext, useRef, useMemo, useCallback
+                - Gerenciamento de estado: Context API, Redux, Zustand
+                - Roteamento: React Router, TanStack Router
+                - Renderização condicional, listas e keys
+                """
+            elif is_technical:
+                # Prompt genérico para vídeos técnicos
+                specific_context = """
+                Contexto para vídeos técnicos:
+                - Estruture a transcrição como uma aula técnica
+                - Inclua explicações de conceitos, exemplos de código, casos de uso
+                - Mencione prós e contras das tecnologias discutidas
+                - Inclua dicas de implementação e melhores práticas
+                """
+            else:
+                # Prompt para vídeos não técnicos
+                specific_context = """
+                Contexto geral:
+                - Estruture a transcrição como uma apresentação informativa
+                - Inclua introdução, desenvolvimento dos tópicos principais e conclusão
+                - Mantenha um tom conversacional mas informativo
+                """
+            
+            # Criar prompt principal para a transcrição
+            main_prompt = f"""
+            Você é um especialista em criar transcrições sintéticas de alta qualidade para vídeos do YouTube.
+            
+            Com base nas informações abaixo, crie uma transcrição detalhada e realista que represente 
+            o conteúdo provável deste vídeo. A transcrição deve parecer uma transcrição real de fala,
+            incluindo marcadores de tempo aproximados, pausas naturais, e um estilo conversacional.
+            
+            Informações do vídeo:
+            Título: {title}
+            Canal: {author}
+            Descrição: {description}
+            
+            Análise de tópicos:
+            {theme_analysis}
+            
+            {specific_context}
+            
+            Diretrizes para a transcrição:
+            1. Comece com uma saudação e introdução típica de um YouTuber
+            2. Estruture o conteúdo em seções lógicas que cobrem todos os tópicos prováveis
+            3. Inclua marcadores de tempo aproximados (ex: [00:45], [03:12])
+            4. Inclua elementos de fala natural como "é...", "então", "certo?", "vamos lá"
+            5. Para vídeos técnicos, inclua explicações de código ou demonstrações
+            6. Termine com uma conclusão e call-to-action típicos (inscreva-se, deixe like)
+            7. A transcrição deve ter pelo menos 1500 palavras para ser detalhada o suficiente
+            8. Inclua termos técnicos específicos da área abordada
+            
+            Exemplo de formato:
+            [00:00] Fala pessoal! Beleza? Hoje vamos falar sobre...
+            [00:45] Antes de começar, queria agradecer a todos que...
+            [01:30] Vamos entrar no assunto principal agora...
+            ...
+            [14:20] E para finalizar, não esqueçam de deixar o like e se inscrever no canal!
+            
+            Agora, crie uma transcrição completa e detalhada para este vídeo:
             """
             
             # Gerar transcrição
-            response = model.generate_content(prompt)
+            response = model.generate_content(main_prompt)
             
             # Retornar a transcrição gerada
             return response.text
     except Exception as e:
         st.error(f"Erro ao gerar transcrição sintética: {str(e)}")
-        return None
+        # Tentar uma abordagem mais simples em caso de erro
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            
+            simple_prompt = f"""
+            Crie uma transcrição detalhada para um vídeo do YouTube com o título "{video_info.get('title', '')}"
+            e descrição "{video_info.get('description', '')}". A transcrição deve ser realista, detalhada
+            e cobrir todos os tópicos que provavelmente foram abordados no vídeo.
+            """
+            
+            response = model.generate_content(simple_prompt)
+            return response.text
+        except:
+            return f"Não foi possível gerar uma transcrição sintética. Informações disponíveis:\n\nTítulo: {video_info.get('title', '')}\n\nDescrição: {video_info.get('description', '')}"
 
 def get_youtube_transcript_with_fallback(video_id, openai_key=None):
     """Tenta obter a transcrição do YouTube com múltiplos métodos"""
@@ -475,7 +585,7 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['pt'])
         transcript = ' '.join([item['text'] for item in transcript_list])
         st.success("✅ Transcrição obtida com sucesso!")
-        return transcript
+        return transcript, False  # False indica que não é sintética
     except Exception as e:
         st.warning(f"Método primário falhou: {str(e)}")
         
@@ -485,7 +595,7 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
             transcript = ' '.join([item['text'] for item in transcript_list])
             st.success("✅ Transcrição obtida em inglês!")
-            return transcript
+            return transcript, False
         except:
             st.warning("Não foi possível obter legendas em outros idiomas.")
         
@@ -507,7 +617,7 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
                         st.success("✅ Áudio transcrito com sucesso usando Whisper!")
                         # Salvar a transcrição na sessão
                         st.session_state.transcript = transcript
-                        return transcript
+                        return transcript, False
             
             # Método 3.2: Tentar com Vosk (offline)
             st.info("Tentando transcrever o áudio com Vosk (offline)...")
@@ -517,7 +627,7 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
                 if transcript:
                     st.success("✅ Áudio transcrito com sucesso usando Vosk!")
                     st.session_state.transcript = transcript
-                    return transcript
+                    return transcript, False
             
             # Método 3.3: Usar Gemini para processar o áudio
             if 'gemini_api_key' in st.session_state and audio_file:
@@ -526,29 +636,28 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
                 if transcript:
                     st.success("✅ Áudio processado com sucesso usando Gemini!")
                     st.session_state.transcript = transcript
-                    return transcript
+                    return transcript, False
             
             # Método 3.4: Gerar transcrição sintética a partir do título e descrição
             if 'gemini_api_key' in st.session_state:
-                st.info("Gerando transcrição sintética a partir das informações do vídeo...")
+                st.info("Gerando transcrição sintética aprimorada a partir das informações do vídeo...")
                 synthetic_transcript = get_transcript_from_title_description(video_info, st.session_state['gemini_api_key'])
                 if synthetic_transcript:
                     st.success("✅ Transcrição sintética gerada com sucesso!")
-                    st.warning("⚠️ Esta é uma transcrição sintética baseada no título e descrição do vídeo, não o conteúdo real.")
                     st.session_state.transcript = synthetic_transcript
-                    return synthetic_transcript
+                    return synthetic_transcript, True  # True indica que é sintética
             
             # Método 3.5: Usar informações do vídeo como fallback
             fallback_text = f"Título: {video_info['title']}\n\nDescrição: {video_info['description']}"
             st.warning("Usando informações básicas do vídeo em vez da transcrição completa.")
-            return fallback_text
+            return fallback_text, False
         
         # Método 4: Permitir entrada manual como último recurso
         st.error("Não foi possível obter a transcrição automaticamente.")
         
         # Verificar se já temos uma transcrição na sessão
         if st.session_state.transcript:
-            return st.session_state.transcript
+            return st.session_state.transcript, False
         
         manual_transcript = st.text_area(
             "Como último recurso, você pode colar a transcrição manualmente:",
@@ -558,9 +667,46 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
         
         if manual_transcript:
             st.session_state.transcript = manual_transcript
-            return manual_transcript
+            return manual_transcript, False
         
-        return None
+        return None, False
+
+def display_transcript_preview(transcript, is_synthetic=False):
+    """Exibe uma prévia da transcrição com formatação melhorada"""
+    with st.expander("📝 Visualizar transcrição" + (" (sintética)" if is_synthetic else ""), expanded=False):
+        if is_synthetic:
+            st.warning("⚠️ Esta é uma transcrição sintética gerada por IA com base no título e descrição do vídeo. Pode não representar o conteúdo exato do vídeo original.")
+        
+        # Formatar a transcrição para melhor legibilidade
+        formatted_transcript = transcript
+        
+        # Detectar e formatar timestamps
+        timestamp_pattern = r'\[(\d{2}:\d{2})\]'
+        if re.search(timestamp_pattern, transcript):
+            formatted_parts = []
+            parts = re.split(timestamp_pattern, transcript)
+            
+            for i in range(0, len(parts)-1, 2):
+                timestamp = parts[i+1]
+                text = parts[i+2] if i+2 < len(parts) else ""
+                formatted_parts.append(f"**[{timestamp}]** {text}")
+            
+            formatted_transcript = parts[0] + "\n\n".join(formatted_parts)
+        
+        st.markdown(formatted_transcript)
+        
+        # Adicionar botão para editar a transcrição
+        if st.button("Editar transcrição", key="edit_transcript"):
+            st.session_state.transcript = st.text_area(
+                "Edite a transcrição conforme necessário:",
+                value=transcript,
+                height=400
+            )
+            if st.button("Salvar alterações", key="save_transcript"):
+                st.success("✅ Transcrição atualizada com sucesso!")
+                return st.session_state.transcript
+        
+        return transcript
 
 def fix_json_string(json_str):
     """Corrige problemas comuns em strings JSON"""
@@ -768,34 +914,39 @@ def main():
         
         with st.spinner("Verificando disponibilidade do vídeo e buscando transcrição..."):
             # Usar o método com fallback, incluindo a chave da OpenAI se disponível
-            transcript = get_youtube_transcript_with_fallback(
+            transcript_result = get_youtube_transcript_with_fallback(
                 video_id, 
                 openai_key=openai_api_key if openai_api_key else None
             )
-            
-            if not transcript:
+        
+            if not transcript_result[0]:
                 st.error("Não foi possível obter nenhuma informação sobre o vídeo.")
                 return
-            
+        
+            transcript, is_synthetic = transcript_result
+        
+            # Exibir prévia da transcrição
+            transcript = display_transcript_preview(transcript, is_synthetic)
+        
             with st.spinner("Gerando perguntas com IA..."):
                 questions = generate_questions(transcript, gemini_api_key, num_questions, question_type)
-                
+            
                 if not questions:
                     st.error("Falha ao gerar perguntas.")
                     return
-                
+            
                 # Salvar as perguntas e o tipo no estado da sessão
                 st.session_state.questions = questions
                 st.session_state.question_type = question_type
                 st.session_state.has_generated = True
-                
+            
                 # Inicializar o estado para cada pergunta
                 for i in range(len(questions)):
                     if f"resposta_selecionada_{i}" not in st.session_state:
                         st.session_state[f"resposta_selecionada_{i}"] = None
                     if f"mostrar_resultado_{i}" not in st.session_state:
                         st.session_state[f"mostrar_resultado_{i}"] = False
-                
+            
                 st.success("✅ Perguntas geradas com sucesso!")
     
     # Exibir perguntas se elas foram geradas
