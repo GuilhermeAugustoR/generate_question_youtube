@@ -1,8 +1,10 @@
 import streamlit as st
 import json
+import re
 from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
-import re
+import requests
+from datetime import datetime
 
 def apply_custom_css():
     # Cores para tema claro
@@ -28,7 +30,6 @@ def apply_custom_css():
     bg = dark_bg
     text = dark_text
     card_bg = dark_card_bg
-    
     
     # CSS personalizado
     st.markdown(f"""
@@ -211,13 +212,57 @@ def extract_video_id(youtube_url):
         return youtube_match.group(6)
     return None
 
-def get_youtube_transcript(video_id):
+def get_youtube_transcript_with_fallback(video_id):
+    """Tenta obter a transcrição do YouTube com métodos alternativos"""
+    # Método 1: Usando a biblioteca youtube-transcript-api diretamente
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['pt'])
         transcript = ' '.join([item['text'] for item in transcript_list])
         return transcript
     except Exception as e:
-        st.error(f"Erro ao buscar a transcrição: {str(e)}")
+        st.warning(f"Método primário falhou: {str(e)}")
+        
+        # Método 2: Usando a API pública alternativa
+        try:
+            st.info("Tentando método alternativo para obter a transcrição...")
+            url = f"https://youtubetranscript.com/?server_vid={video_id}"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                # Extrair o texto da transcrição da resposta
+                transcript_text = response.text
+                # Processar o texto para extrair apenas a transcrição
+                # (Isso depende do formato da resposta da API)
+                # Exemplo simplificado:
+                transcript_match = re.search(r'"text":"(.*?)"', transcript_text)
+                if transcript_match:
+                    return transcript_match.group(1)
+            
+            # Método 3: Usar uma descrição do vídeo como fallback
+            st.info("Tentando obter informações do vídeo como alternativa...")
+            video_info_url = f"https://www.googleapis.com/youtube/v3/videos?id={video_id}&part=snippet&key={st.session_state.get('api_key', '')}"
+            video_response = requests.get(video_info_url)
+            
+            if video_response.status_code == 200:
+                video_data = video_response.json()
+                if 'items' in video_data and len(video_data['items']) > 0:
+                    description = video_data['items'][0]['snippet'].get('description', '')
+                    title = video_data['items'][0]['snippet'].get('title', '')
+                    return f"Título: {title}\n\nDescrição: {description}"
+        
+        except Exception as fallback_error:
+            st.error(f"Todos os métodos para obter transcrição falharam: {str(fallback_error)}")
+        
+        # Se tudo falhar, permitir que o usuário insira manualmente
+        st.warning("Não foi possível obter a transcrição automaticamente.")
+        manual_transcript = st.text_area(
+            "Por favor, insira manualmente a transcrição ou o conteúdo do vídeo:",
+            height=300
+        )
+        
+        if manual_transcript:
+            return manual_transcript
+        
         return None
 
 def fix_json_string(json_str):
@@ -391,6 +436,10 @@ def main():
     with st.form("input_form"):
         youtube_url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
         api_key = st.text_input("Chave da API Google (AI/Gemini)", type="password")
+        # Guardar a API key na sessão para uso posterior
+        if api_key:
+            st.session_state['api_key'] = api_key
+            
         num_questions = st.slider("Número de perguntas a serem geradas", min_value=1, max_value=20, value=5)
         
         question_type = st.radio(
@@ -417,7 +466,8 @@ def main():
             return
         
         with st.spinner("Buscando transcrição e gerando perguntas..."):
-            transcript = get_youtube_transcript(video_id)
+            # Usar o método com fallback
+            transcript = get_youtube_transcript_with_fallback(video_id)
             if not transcript:
                 st.error("Não foi possível obter a transcrição. O vídeo pode não ter legendas ou legendas em português.")
                 return
