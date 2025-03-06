@@ -11,6 +11,8 @@ from pydub import AudioSegment
 import time
 import io
 import base64
+import urllib.parse
+import random
 
 # Tentar importar bibliotecas opcionais
 try:
@@ -103,6 +105,147 @@ def extract_video_id(youtube_url):
         return youtube_match.group(6)
     return None
 
+def get_video_info_via_proxy(video_id):
+    """Obtém informações do vídeo usando serviços proxy"""
+    try:
+        # Lista de serviços proxy para tentar
+        proxy_services = [
+            f"https://invidious.snopyta.org/api/v1/videos/{video_id}",
+            f"https://vid.puffyan.us/api/v1/videos/{video_id}",
+            f"https://yewtu.be/api/v1/videos/{video_id}",
+            f"https://invidious.kavin.rocks/api/v1/videos/{video_id}"
+        ]
+        
+        for service_url in proxy_services:
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(service_url, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    video_data = response.json()
+                    return {
+                        "title": video_data.get("title", ""),
+                        "author": video_data.get("author", ""),
+                        "description": video_data.get("description", ""),
+                        "keywords": video_data.get("keywords", []),
+                        "lengthSeconds": video_data.get("lengthSeconds", 0)
+                    }
+            except Exception as e:
+                continue
+        
+        # Tentar método alternativo - scraping básico
+        try:
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                # Extrair título
+                title_match = re.search(r'<title>(.*?)</title>', response.text)
+                title = title_match.group(1).replace(" - YouTube", "") if title_match else "Título desconhecido"
+                
+                # Extrair descrição
+                desc_match = re.search(r'"description":{"simpleText":"(.*?)"}', response.text)
+                description = desc_match.group(1) if desc_match else "Descrição não disponível"
+                
+                return {
+                    "title": title,
+                    "description": description,
+                    "author": "Autor desconhecido"
+                }
+        except Exception as e:
+            pass
+        
+        return None
+    except Exception as e:
+        st.error(f"Erro ao obter informações do vídeo via proxy: {str(e)}")
+        return None
+
+def download_audio_via_proxy(video_id):
+    """Tenta baixar o áudio do vídeo usando serviços proxy"""
+    try:
+        with st.spinner("Tentando baixar áudio via serviços alternativos..."):
+            # Criar diretório temporário
+            temp_dir = tempfile.mkdtemp()
+            
+            # Lista de serviços proxy para tentar
+            proxy_services = [
+                f"https://invidious.snopyta.org/latest_version?id={video_id}&itag=140",
+                f"https://vid.puffyan.us/latest_version?id={video_id}&itag=140",
+                f"https://yewtu.be/latest_version?id={video_id}&itag=140"
+            ]
+            
+            for service_url in proxy_services:
+                try:
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+                    response = requests.get(service_url, headers=headers, stream=True, timeout=30)
+                    
+                    if response.status_code == 200:
+                        # Salvar o arquivo de áudio
+                        audio_file = os.path.join(temp_dir, f"{video_id}.mp4")
+                        with open(audio_file, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=1024):
+                                if chunk:
+                                    f.write(chunk)
+                        
+                        # Converter para MP3
+                        mp3_file = os.path.join(temp_dir, f"{video_id}.mp3")
+                        audio = AudioSegment.from_file(audio_file)
+                        audio.export(mp3_file, format="mp3", bitrate="128k")
+                        
+                        # Remover o arquivo original
+                        os.remove(audio_file)
+                        
+                        return mp3_file
+                except Exception as e:
+                    continue
+            
+            # Método alternativo - usar um serviço de download de YouTube
+            try:
+                download_services = [
+                    f"https://api.vevioz.com/api/button/mp3/{video_id}",
+                    f"https://api.download-lagu-mp3.com/@api/button/mp3/{video_id}"
+                ]
+                
+                for service_url in download_services:
+                    try:
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                            'Referer': 'https://www.youtube.com/'
+                        }
+                        response = requests.get(service_url, headers=headers, timeout=10)
+                        
+                        if response.status_code == 200:
+                            # Extrair URL de download
+                            download_url_match = re.search(r'href="(https://.*?\.mp3)"', response.text)
+                            if download_url_match:
+                                download_url = download_url_match.group(1)
+                                
+                                # Baixar o arquivo
+                                audio_response = requests.get(download_url, headers=headers, stream=True, timeout=30)
+                                if audio_response.status_code == 200:
+                                    mp3_file = os.path.join(temp_dir, f"{video_id}.mp3")
+                                    with open(mp3_file, 'wb') as f:
+                                        for chunk in audio_response.iter_content(chunk_size=1024):
+                                            if chunk:
+                                                f.write(chunk)
+                                    return mp3_file
+                    except Exception as e:
+                        continue
+            except Exception as e:
+                pass
+            
+            return None
+    except Exception as e:
+        st.error(f"Erro ao baixar áudio via proxy: {str(e)}")
+        return None
+
 def get_video_info(video_id):
     """Obtém informações básicas do vídeo"""
     try:
@@ -115,7 +258,15 @@ def get_video_info(video_id):
             "description": yt.description
         }
     except Exception as e:
-        st.error(f"Erro ao obter informações do vídeo: {str(e)}")
+        st.warning(f"Erro ao obter informações do vídeo via pytube: {str(e)}")
+        
+        # Tentar método alternativo
+        proxy_info = get_video_info_via_proxy(video_id)
+        if proxy_info:
+            st.success("✅ Informações do vídeo obtidas via serviço alternativo!")
+            return proxy_info
+        
+        st.error("Não foi possível obter informações do vídeo.")
         return None
 
 def download_audio(video_id):
@@ -131,6 +282,13 @@ def download_audio(video_id):
             
             if not audio_stream:
                 st.error("Não foi possível encontrar uma stream de áudio para este vídeo.")
+                
+                # Tentar método alternativo
+                proxy_audio = download_audio_via_proxy(video_id)
+                if proxy_audio:
+                    st.success("✅ Áudio baixado via serviço alternativo!")
+                    return proxy_audio
+                
                 return None
             
             # Baixar o arquivo
@@ -146,7 +304,15 @@ def download_audio(video_id):
             
             return mp3_file
     except Exception as e:
-        st.error(f"Erro ao baixar áudio: {str(e)}")
+        st.warning(f"Erro ao baixar áudio via pytube: {str(e)}")
+        
+        # Tentar método alternativo
+        proxy_audio = download_audio_via_proxy(video_id)
+        if proxy_audio:
+            st.success("✅ Áudio baixado via serviço alternativo!")
+            return proxy_audio
+        
+        st.error("Não foi possível baixar o áudio do vídeo.")
         return None
 
 def transcribe_with_whisper(audio_file, api_key):
@@ -272,6 +438,36 @@ def transcribe_with_gemini(audio_file, api_key):
         st.error(f"Erro ao processar com Gemini: {str(e)}")
         return None
 
+def get_transcript_from_title_description(video_info, api_key):
+    """Gera uma transcrição sintética a partir do título e descrição do vídeo"""
+    try:
+        with st.spinner("Gerando transcrição a partir das informações do vídeo..."):
+            # Configurar a API
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            
+            # Criar prompt
+            prompt = f"""
+            Com base no título e descrição deste vídeo do YouTube, crie uma transcrição sintética 
+            que represente o possível conteúdo do vídeo. Seja detalhado e abrangente.
+            
+            Título: {video_info.get('title', 'Título desconhecido')}
+            Autor: {video_info.get('author', 'Autor desconhecido')}
+            Descrição: {video_info.get('description', 'Descrição não disponível')}
+            
+            Crie uma transcrição que cubra os principais tópicos que provavelmente foram abordados no vídeo.
+            Inclua explicações técnicas, exemplos e conceitos relacionados ao tema.
+            """
+            
+            # Gerar transcrição
+            response = model.generate_content(prompt)
+            
+            # Retornar a transcrição gerada
+            return response.text
+    except Exception as e:
+        st.error(f"Erro ao gerar transcrição sintética: {str(e)}")
+        return None
+
 def get_youtube_transcript_with_fallback(video_id, openai_key=None):
     """Tenta obter a transcrição do YouTube com múltiplos métodos"""
     # Método 1: Usando a biblioteca youtube-transcript-api diretamente
@@ -293,49 +489,61 @@ def get_youtube_transcript_with_fallback(video_id, openai_key=None):
         except:
             st.warning("Não foi possível obter legendas em outros idiomas.")
         
-        # Método 3: Usar Whisper para transcrever o áudio
-        if openai_key:
-            st.info("Tentando transcrever o áudio do vídeo com Whisper...")
+        # Método 3: Obter informações do vídeo para gerar transcrição sintética
+        st.info("Tentando obter informações do vídeo...")
+        video_info = get_video_info(video_id)
+        
+        if video_info:
+            # Método 3.1: Usar Whisper para transcrever o áudio
+            if openai_key:
+                st.info("Tentando transcrever o áudio do vídeo com Whisper...")
+                
+                # Baixar o áudio
+                audio_file = download_audio(video_id)
+                if audio_file:
+                    # Transcrever o áudio com Whisper
+                    transcript = transcribe_with_whisper(audio_file, openai_key)
+                    if transcript:
+                        st.success("✅ Áudio transcrito com sucesso usando Whisper!")
+                        # Salvar a transcrição na sessão
+                        st.session_state.transcript = transcript
+                        return transcript
             
-            # Baixar o áudio
-            audio_file = download_audio(video_id)
-            if audio_file:
-                # Transcrever o áudio com Whisper
-                transcript = transcribe_with_whisper(audio_file, openai_key)
+            # Método 3.2: Tentar com Vosk (offline)
+            st.info("Tentando transcrever o áudio com Vosk (offline)...")
+            audio_file = download_audio(video_id) if 'audio_file' not in locals() else audio_file
+            if audio_file and VOSK_AVAILABLE:
+                transcript = transcribe_with_vosk(audio_file)
                 if transcript:
-                    st.success("✅ Áudio transcrito com sucesso usando Whisper!")
-                    # Salvar a transcrição na sessão
+                    st.success("✅ Áudio transcrito com sucesso usando Vosk!")
                     st.session_state.transcript = transcript
                     return transcript
-        
-        # Método 4: Tentar com Vosk (offline)
-        st.info("Tentando transcrever o áudio com Vosk (offline)...")
-        audio_file = download_audio(video_id) if 'audio_file' not in locals() else audio_file
-        if audio_file and VOSK_AVAILABLE:
-            transcript = transcribe_with_vosk(audio_file)
-            if transcript:
-                st.success("✅ Áudio transcrito com sucesso usando Vosk!")
-                st.session_state.transcript = transcript
-                return transcript
-        
-        # Método 5: Usar Gemini para processar o áudio
-        if 'gemini_api_key' in st.session_state and audio_file:
-            st.info("Tentando processar o áudio com Gemini...")
-            transcript = transcribe_with_gemini(audio_file, st.session_state['gemini_api_key'])
-            if transcript:
-                st.success("✅ Áudio processado com sucesso usando Gemini!")
-                st.session_state.transcript = transcript
-                return transcript
-        
-        # Método 6: Usar informações do vídeo como fallback
-        st.info("Tentando usar informações do vídeo como alternativa...")
-        video_info = get_video_info(video_id)
-        if video_info:
+            
+            # Método 3.3: Usar Gemini para processar o áudio
+            if 'gemini_api_key' in st.session_state and audio_file:
+                st.info("Tentando processar o áudio com Gemini...")
+                transcript = transcribe_with_gemini(audio_file, st.session_state['gemini_api_key'])
+                if transcript:
+                    st.success("✅ Áudio processado com sucesso usando Gemini!")
+                    st.session_state.transcript = transcript
+                    return transcript
+            
+            # Método 3.4: Gerar transcrição sintética a partir do título e descrição
+            if 'gemini_api_key' in st.session_state:
+                st.info("Gerando transcrição sintética a partir das informações do vídeo...")
+                synthetic_transcript = get_transcript_from_title_description(video_info, st.session_state['gemini_api_key'])
+                if synthetic_transcript:
+                    st.success("✅ Transcrição sintética gerada com sucesso!")
+                    st.warning("⚠️ Esta é uma transcrição sintética baseada no título e descrição do vídeo, não o conteúdo real.")
+                    st.session_state.transcript = synthetic_transcript
+                    return synthetic_transcript
+            
+            # Método 3.5: Usar informações do vídeo como fallback
             fallback_text = f"Título: {video_info['title']}\n\nDescrição: {video_info['description']}"
             st.warning("Usando informações básicas do vídeo em vez da transcrição completa.")
             return fallback_text
         
-        # Método 7: Permitir entrada manual como último recurso
+        # Método 4: Permitir entrada manual como último recurso
         st.error("Não foi possível obter a transcrição automaticamente.")
         
         # Verificar se já temos uma transcrição na sessão
@@ -503,23 +711,6 @@ def render_footer():
     </div>
     """, unsafe_allow_html=True)
 
-def render_deployment_options():
-    with st.expander("Opções de Deploy Alternativas"):
-        st.markdown("""
-        <div class="info-box">
-            <h4>Plataformas alternativas para deploy (gratuitas):</h4>
-            <ul>
-                <li><strong>Render.com</strong> - Oferece plano gratuito com menos restrições de rede</li>
-                <li><strong>Railway.app</strong> - Plano gratuito com limites mensais, mas bom desempenho</li>
-                <li><strong>Fly.io</strong> - Camada gratuita generosa, bom para aplicações Python</li>
-                <li><strong>Replit</strong> - Plataforma gratuita com suporte para Streamlit</li>
-                <li><strong>Google Cloud Run</strong> - Tem camada gratuita e boa conectividade</li>
-                <li><strong>Hugging Face Spaces</strong> - Gratuito e com bom suporte para Streamlit</li>
-            </ul>
-            <p>Estas plataformas geralmente têm menos restrições de rede e podem funcionar melhor para acessar APIs externas como a do YouTube.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
 def main():
     st.set_page_config(
         page_title="Gerador de Perguntas do YouTube",
@@ -532,10 +723,7 @@ def main():
     
     # Renderizar cabeçalho
     render_header()
-    
-    # Mostrar opções de deploy alternativas
-    render_deployment_options()
-    
+
     # Formulário de entrada
     with st.form("input_form"):
         youtube_url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
@@ -650,16 +838,14 @@ def main():
                 with st.expander(f"Pergunta {i}: {q['pergunta']}"):
                     st.write(f"**Resposta:** {q['resposta']}")
         
-        # # Botão para baixar as perguntas
-        # questions_json = json.dumps(st.session_state.questions, indent=2, ensure_ascii=False)
-        # st.download_button(
-        #     label="Baixar Perguntas como JSON",  ensure_ascii=False)
-        # st.download_button(
-        #     label="Baixar Perguntas como JSON",
-        #     data=questions_json,
-        #     file_name=f"perguntas_youtube_{st.session_state.question_type}.json",
-        #     mime="application/json"
-        # )
+        # Botão para baixar as perguntas
+        questions_json = json.dumps(st.session_state.questions, indent=2, ensure_ascii=False)
+        st.download_button(
+            label="Baixar Perguntas como JSON",
+            data=questions_json,
+            file_name=f"perguntas_youtube_{st.session_state.question_type}.json",
+            mime="application/json"
+        )
     
     # Renderizar footer
     render_footer()
