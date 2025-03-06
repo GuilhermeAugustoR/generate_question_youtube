@@ -13,6 +13,7 @@ import io
 import base64
 import urllib.parse
 import random
+import pickle
 
 # Tentar importar bibliotecas opcionais
 try:
@@ -93,6 +94,51 @@ if 'question_type' not in st.session_state:
     st.session_state.question_type = "dissertativa"
 if 'transcript' not in st.session_state:
     st.session_state.transcript = ""
+
+# Função para salvar as chaves de API
+def save_api_keys(gemini_key=None, openai_key=None):
+    # Salvar na sessão
+    if gemini_key:
+        st.session_state['gemini_api_key'] = gemini_key
+    if openai_key:
+        st.session_state['openai_api_key'] = openai_key
+    
+    # Tentar salvar em um arquivo local para persistência entre sessões
+    try:
+        keys_data = {
+            'gemini': st.session_state.get('gemini_api_key', ''),
+            'openai': st.session_state.get('openai_api_key', '')
+        }
+        
+        # Usar o diretório temporário do sistema para armazenar as chaves
+        keys_file = os.path.join(tempfile.gettempdir(), 'youtube_question_generator_keys.pkl')
+        with open(keys_file, 'wb') as f:
+            pickle.dump(keys_data, f)
+    except Exception as e:
+        # Se não conseguir salvar, apenas continue sem erro
+        pass
+
+# Função para carregar as chaves de API
+def load_api_keys():
+    # Tentar carregar de um arquivo local
+    try:
+        keys_file = os.path.join(tempfile.gettempdir(), 'youtube_question_generator_keys.pkl')
+        if os.path.exists(keys_file):
+            with open(keys_file, 'rb') as f:
+                keys_data = pickle.load(f)
+                
+                # Salvar na sessão
+                if keys_data.get('gemini') and 'gemini_api_key' not in st.session_state:
+                    st.session_state['gemini_api_key'] = keys_data['gemini']
+                if keys_data.get('openai') and 'openai_api_key' not in st.session_state:
+                    st.session_state['openai_api_key'] = keys_data['openai']
+                
+                return keys_data
+    except Exception as e:
+        # Se não conseguir carregar, apenas continue sem erro
+        pass
+    
+    return {'gemini': '', 'openai': ''}
 
 def extract_video_id(youtube_url):
     youtube_regex = (
@@ -840,7 +886,7 @@ def on_generate_click():
 
 def render_header():
     """Renderiza o cabeçalho da aplicação"""
-    st.markdown("<h1>🎓 Gerador de Perguntas do YouTube</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>⚡ SpotQuest - Gerador de Perguntas do YouTube</h1>", unsafe_allow_html=True)
     
     st.markdown("""
     <div class="card">
@@ -857,9 +903,43 @@ def render_footer():
     </div>
     """, unsafe_allow_html=True)
 
+def render_api_settings():
+    """Renderiza a seção de configuração de APIs"""
+    with st.expander("⚙️ Configurações de API", expanded=False):
+        st.markdown("""
+        <div class="api-key-card">
+            <h4>Chaves de API</h4>
+            <p>Configure suas chaves de API para usar o gerador de perguntas. As chaves serão salvas para uso futuro.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Carregar chaves salvas
+        saved_keys = load_api_keys()
+        
+        # Campos para as chaves de API
+        col1, col2 = st.columns(2)
+        with col1:
+            gemini_key = st.text_input(
+                "Chave da API Google (AI/Gemini)", 
+                value=st.session_state.get('gemini_api_key', saved_keys.get('gemini', '')),
+                type="password"
+            )
+        with col2:
+            openai_key = st.text_input(
+                "Chave da API OpenAI (opcional, para transcrição de áudio)", 
+                value=st.session_state.get('openai_api_key', saved_keys.get('openai', '')),
+                type="password",
+                help="Obtenha uma chave gratuita em https://platform.openai.com/"
+            )
+        
+        # Botão para salvar as chaves
+        if st.button("Salvar Chaves de API"):
+            save_api_keys(gemini_key, openai_key)
+            st.success("✅ Chaves de API salvas com sucesso!")
+
 def main():
     st.set_page_config(
-        page_title="Gerador de Perguntas do YouTube",
+        page_title="SpotQuest⚡",
         page_icon="🎓",
         layout="wide"
     )
@@ -867,25 +947,26 @@ def main():
     # Aplicar CSS personalizado
     apply_custom_css()
     
+    # Carregar chaves de API salvas
+    load_api_keys()
+    
     # Renderizar cabeçalho
     render_header()
+    
+    # Renderizar configurações de API
+    render_api_settings()
 
     # Formulário de entrada
     with st.form("input_form"):
         youtube_url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            gemini_api_key = st.text_input("Chave da API Google (AI/Gemini)", type="password")
-        with col2:
-            openai_api_key = st.text_input("Chave da API OpenAI (opcional, para transcrição de áudio)", type="password", 
-                                          help="Obtenha uma chave gratuita em https://platform.openai.com/")
+        # Verificar se temos as chaves de API na sessão
+        gemini_api_key = st.session_state.get('gemini_api_key', '')
+        openai_api_key = st.session_state.get('openai_api_key', '')
         
-        # Guardar as API keys na sessão
-        if gemini_api_key:
-            st.session_state['gemini_api_key'] = gemini_api_key
-        if openai_api_key:
-            st.session_state['openai_api_key'] = openai_api_key
+        # Mostrar aviso se não tiver chave do Gemini
+        if not gemini_api_key:
+            st.warning("⚠️ Você precisa configurar a chave da API Gemini nas configurações acima.")
             
         num_questions = st.slider("Número de perguntas a serem geradas", min_value=1, max_value=20, value=5)
         
@@ -904,7 +985,7 @@ def main():
             return
         
         if not gemini_api_key:
-            st.error("Por favor, insira sua chave de API do Google (AI/Gemini).")
+            st.error("Por favor, configure a chave da API Google (AI/Gemini) nas configurações acima.")
             return
         
         video_id = extract_video_id(youtube_url)
